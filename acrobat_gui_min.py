@@ -292,36 +292,30 @@ class AcrobatWorker:
         raise PwaTimeoutError(f"点击失败 ({label}, 已尝试 {retries + 1} 次): {last_err}")
 
     # ---------- 主动"刺激"主窗口, 让 Acrobat 把按钮重新注入 UIA 树 ----------
-    def _refocus_main_win(self) -> bool:
+    def _toggle_preferences_dialog(self) -> bool:
         """
-        切焦点到任务栏再切回 Acrobat 主窗口, 触发 WM_ACTIVATE/WM_SETFOCUS,
-        迫使 Acrobat 重画右侧工具栏 + 重新枚举控件 (把按钮重新注入 UIA 树).
+        发 Ctrl+K 打开 Acrobat 首选项 → 等对话框真正弹出 → 发 Esc 关闭,
+        触发主窗口的失焦→获焦事件链, 迫使 Acrobat 重画右侧工具栏 +
+        重新枚举控件 (把按钮重新注入 UIA 树).
 
-        证据: 用户实测"打开 Acrobat 首选项 → 关闭"100% 让消失的按钮重现 -
-        本质就是触发了主窗口的"失焦→获焦"事件链.
-        本方法是该效果的最轻量等价物: 切焦点到任务栏 (视觉上几乎不可见, 比弹首选项窗口快得多).
+        用户实测: 打开/关闭 Acrobat 首选项 100% 让消失的'去水印'按钮重现.
+        之前试过的轻量等价物 (hover+滚轮, set_focus 切任务栏) 都不够"重",
+        必须真的弹出模态对话框 + 关闭, 才能触发 Acrobat 的全量重画.
 
-        失败时退到 minimize/restore (副作用大, 窗口会闪, 但触发同样的事件).
-        成功返回 True.
+        副作用: 首选项窗口会一闪而过 (~0.8s), 但成功率换得起这点视觉抖动.
         """
         try:
-            from pywinauto import Desktop
             try:
-                taskbar = Desktop(backend="win32").window(class_name="Shell_TrayWnd")
-                taskbar.set_focus()
+                self.main_win.set_focus()
             except Exception:
-                # 拿不到任务栏 → 退到 minimize+restore
-                try:
-                    self.main_win.minimize()
-                    time.sleep(0.1)
-                    self.main_win.restore()
-                except Exception:
-                    pass
-            time.sleep(0.2)
-            self.main_win.set_focus()
+                pass
+            send_keys("^k")           # Ctrl+K → 弹出首选项对话框 (Acrobat 标准快捷键)
+            time.sleep(0.6)            # 等对话框真正渲染好, 不然 Esc 可能丢失
+            send_keys("{ESC}")         # Esc → 关闭对话框 (等价于 Cancel)
+            time.sleep(0.4)            # 等 Acrobat 处理 WM_ACTIVATE 重画主窗口
             return True
         except Exception as e:
-            self.log(f"  [refocus] 失败 (已忽略): {e}")
+            self.log(f"  [prefs-toggle] 失败 (已忽略): {e}")
             return False
 
     # ---------- 通用: 找一个可见的 Button 并点击 ----------
@@ -388,10 +382,9 @@ class AcrobatWorker:
                 if len(candidates) == 0:
                     empty_streak += 1
                     if empty_streak % 4 == 0:   # POLL_INTERVAL=0.5s, 4 轮 ≈ 2s
-                        ok = self._refocus_main_win()
-                        self.log(f"  [刺激] 第 {empty_streak} 轮空, 切焦点→主窗口 "
-                                 f"(命中={ok}), 等 Acrobat 重画 ...")
-                        time.sleep(0.6)
+                        ok = self._toggle_preferences_dialog()
+                        self.log(f"  [刺激] 第 {empty_streak} 轮空, 开关首选项 "
+                                 f"(Ctrl+K → Esc, 命中={ok}), 等 Acrobat 重画 ...")
                 else:
                     empty_streak = 0
             except Exception as e:
