@@ -38,15 +38,7 @@ PER_FILE_TIMEOUT          = 300   # 单文件硬超时 (秒) - 大 PDF (100MB+) 
 CONSECUTIVE_SAME_STAGE    = 3     # 连续同阶段失败 -> 自动暂停
 CONSECUTIVE_TOTAL_FAIL    = 5     # 连续失败 (任何阶段) -> 自动暂停
 EST_SEC_PER_FILE          = 25    # 预估耗时 (用于开始前提示)
-
-# REPORT_DIR 必须用绝对路径 (相对 exe 或脚本自身).
-# 否则 PyInstaller 打包后用户双击 exe 时, cwd 可能是别处, 写报告会 PermissionError.
-def _resolve_base_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-REPORT_DIR = os.path.join(_resolve_base_dir(), "reports")
+REPORT_SUBDIR             = "reports"  # 报告输出到 <输入文件夹>/reports/ 下
 
 
 # =====================================================================
@@ -90,9 +82,16 @@ class BatchRunner:
     def is_paused(self):    return self._pause_flag
 
     # --- 主流程 ---
-    def run(self, pdf_list: List[str], watermark: str) -> str:
-        """串行处理所有 PDF, 返回 CSV 报告路径."""
-        report_path = self._create_report_file()
+    def run(self, pdf_list: List[str], watermark: str,
+            input_folder: Optional[str] = None) -> str:
+        """
+        串行处理所有 PDF, 返回 CSV 报告路径.
+        report 输出到 input_folder/reports/ 下 (跟 PDF 放一起, 便于归档).
+        input_folder 不传则用 pdf_list[0] 的父目录.
+        """
+        if not input_folder and pdf_list:
+            input_folder = os.path.dirname(pdf_list[0])
+        report_path = self._create_report_file(input_folder)
         self.on_log(f"报告文件: {report_path}")
         consecutive_fails: List[PdfResult] = []
 
@@ -242,10 +241,13 @@ class BatchRunner:
                     return kw
         return "unknown"
 
-    def _create_report_file(self) -> str:
-        Path(REPORT_DIR).mkdir(exist_ok=True)
+    def _create_report_file(self, input_folder: Optional[str]) -> str:
+        # 优先放在 input_folder/reports/, 拿不到就退到当前工作目录
+        base = input_folder if input_folder and os.path.isdir(input_folder) else "."
+        report_dir = Path(base) / REPORT_SUBDIR
+        report_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = str(Path(REPORT_DIR) / f"batch_{ts}.csv")
+        path = str(report_dir / f"batch_{ts}.csv")
         with open(path, "w", encoding="utf-8-sig", newline="") as f:
             csv.writer(f).writerow([
                 "序号", "文件路径", "大小KB", "状态",
@@ -541,15 +543,16 @@ class BatchApp(tk.Tk):
             on_result=self._on_result,
             per_file_timeout=timeout_sec,
         )
+        input_folder = self.var_folder.get().strip()
         self.runner_thread = threading.Thread(
-            target=self._run_thread, args=(pdfs, watermark), daemon=True
+            target=self._run_thread, args=(pdfs, watermark, input_folder), daemon=True
         )
         self.runner_thread.start()
 
-    def _run_thread(self, pdfs: List[str], watermark: str):
+    def _run_thread(self, pdfs: List[str], watermark: str, input_folder: str):
         report_path = None
         try:
-            report_path = self.runner.run(pdfs, watermark)
+            report_path = self.runner.run(pdfs, watermark, input_folder=input_folder)
         except Exception as e:
             self._log(f"[严重] BatchRunner 崩溃: {e}")
             self._log(traceback.format_exc())
