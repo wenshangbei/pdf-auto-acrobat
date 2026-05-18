@@ -291,48 +291,38 @@ class AcrobatWorker:
 
         raise PwaTimeoutError(f"点击失败 ({label}, 已尝试 {retries + 1} 次): {last_err}")
 
-    # ---------- 主动"刺激"右侧 task pane, 让 Acrobat 把按钮重新注入 UIA 树 ----------
-    def _poke_right_task_pane(self) -> bool:
+    # ---------- 主动"刺激"主窗口, 让 Acrobat 把按钮重新注入 UIA 树 ----------
+    def _refocus_main_win(self) -> bool:
         """
-        Acrobat 右侧工具窗格 (AVL_AVView) 在 UIA 上有两种态:
-          - "有按钮态": descendants(Button, title='去水印') 能找到
-          - "空容器态": 只有一个空 Pane (Name='右侧工具窗格' / 'AVScrollView'),
-                       descendants 返回 0
-        Acrobat 自己在这两种态间切换, 我们不能从 UIA 直接判断当前在哪态.
-        但实测: 鼠标 hover 到面板上 + 滚动一下, 大概率能让 Acrobat 切回"有按钮态".
-        本方法找到右侧 task pane 容器, 模拟 hover + 滚轮触发重画.
-        成功触发返回 True, 没找到面板返回 False.
+        切焦点到任务栏再切回 Acrobat 主窗口, 触发 WM_ACTIVATE/WM_SETFOCUS,
+        迫使 Acrobat 重画右侧工具栏 + 重新枚举控件 (把按钮重新注入 UIA 树).
+
+        证据: 用户实测"打开 Acrobat 首选项 → 关闭"100% 让消失的按钮重现 -
+        本质就是触发了主窗口的"失焦→获焦"事件链.
+        本方法是该效果的最轻量等价物: 切焦点到任务栏 (视觉上几乎不可见, 比弹首选项窗口快得多).
+
+        失败时退到 minimize/restore (副作用大, 窗口会闪, 但触发同样的事件).
+        成功返回 True.
         """
         try:
-            from pywinauto import mouse
-            panes = self.main_win.descendants(control_type="Pane")
-            for p in panes:
+            from pywinauto import Desktop
+            try:
+                taskbar = Desktop(backend="win32").window(class_name="Shell_TrayWnd")
+                taskbar.set_focus()
+            except Exception:
+                # 拿不到任务栏 → 退到 minimize+restore
                 try:
-                    cn = p.element_info.class_name or ""
-                    name = p.element_info.name or ""
-                    # 匹配 Acrobat 右侧工具栏的容器 (多个名字都可能, 看 Acrobat 版本)
-                    if cn == "AVL_AVView" and (
-                        "工具" in name or "TaskPane" in name
-                        or name == "AVScrollView" or name == "右侧工具窗格"
-                    ):
-                        rect = p.rectangle()
-                        if rect.width() <= 0 or rect.height() <= 0:
-                            continue
-                        cx = (rect.left + rect.right) // 2
-                        cy = (rect.top + rect.bottom) // 2
-                        # 移到中心 (不点击, 避免误触发 Acrobat 工具)
-                        mouse.move(coords=(cx, cy))
-                        time.sleep(0.2)
-                        # 上下各滚一次, 触发 Acrobat 重新渲染列表
-                        mouse.scroll(coords=(cx, cy), wheel_dist=-2)
-                        time.sleep(0.15)
-                        mouse.scroll(coords=(cx, cy), wheel_dist=2)
-                        return True
+                    self.main_win.minimize()
+                    time.sleep(0.1)
+                    self.main_win.restore()
                 except Exception:
                     pass
-        except Exception:
-            pass
-        return False
+            time.sleep(0.2)
+            self.main_win.set_focus()
+            return True
+        except Exception as e:
+            self.log(f"  [refocus] 失败 (已忽略): {e}")
+            return False
 
     # ---------- 通用: 找一个可见的 Button 并点击 ----------
     def _click_visible_button(self, title=None, title_re=None, label_for_log=None,
@@ -398,10 +388,10 @@ class AcrobatWorker:
                 if len(candidates) == 0:
                     empty_streak += 1
                     if empty_streak % 4 == 0:   # POLL_INTERVAL=0.5s, 4 轮 ≈ 2s
-                        poked = self._poke_right_task_pane()
-                        self.log(f"  [刺激] 第 {empty_streak} 轮空, hover+滚轮 task pane "
-                                 f"(命中={poked}), 等 Acrobat 重画 ...")
-                        time.sleep(1.0)
+                        ok = self._refocus_main_win()
+                        self.log(f"  [刺激] 第 {empty_streak} 轮空, 切焦点→主窗口 "
+                                 f"(命中={ok}), 等 Acrobat 重画 ...")
+                        time.sleep(0.6)
                 else:
                     empty_streak = 0
             except Exception as e:
