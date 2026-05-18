@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# PyInstaller 产物
+build/
+dist/
+*.spec
+
+# 运行产物
+reports/
+*.log
+diag_out.txt
+err.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 测试 PDF (用户私有内容, 不应上传)
+*.pdf
+测试卷宗/
+
+# Claude Code 本地配置
+.claude/
+
+# 开发过程中的中间产物 / 实验文件
+acrobat_gui_gemini.py
