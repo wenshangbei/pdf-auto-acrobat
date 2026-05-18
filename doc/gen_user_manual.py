@@ -287,10 +287,14 @@ add_bullet(doc, "顶部红色横幅会一直显示「自动化运行中」")
 add_bullet(doc, "进度条显示当前进度（如 3/12）")
 add_bullet(doc, "列表里每个文件处理完会显示状态（success/failed/timeout）")
 add_bullet(doc, "日志区实时输出每一步操作")
+add_bullet(doc, "偶尔会看到 Acrobat「首选项」窗口一闪而过（约 0.8 秒）—— "
+               "这是程序在某些时刻主动恢复界面状态的自救机制，正常现象，无需处理")
 
 add_heading(doc, "步骤 8：完成后查看报告", level=2)
 add_para(doc, "全部处理完后会弹出汇总弹窗，显示成功/失败/超时数量、总耗时。")
-add_para(doc, "详细的报告 CSV 文件位于程序目录下的 reports 子文件夹，可以用 Excel 打开。")
+add_para(doc, "详细的报告 CSV 文件位于 **你选择的输入文件夹下的 reports 子文件夹** "
+              "（跟你处理的 PDF 放在一起），可以用 Excel 打开。"
+              "例如：如果你处理的是 D:\\卷宗\\ 下的 PDF，那么报告就在 D:\\卷宗\\reports\\ 下。")
 add_screenshot_placeholder(doc, "完成弹窗 + CSV 报告截图")
 
 # 5. 控制按钮
@@ -310,7 +314,9 @@ add_table(doc,
 
 # 6. 报告解读
 add_heading(doc, "6. 报告解读", level=1)
-add_para(doc, "每次运行都会在 reports 目录生成一份 CSV 文件，文件名格式 batch_YYYYMMDD_HHMMSS.csv。")
+add_para(doc, "每次运行都会在 **输入文件夹的 reports 子目录** 生成一份 CSV 文件，"
+              "文件名格式 batch_YYYYMMDD_HHMMSS.csv。"
+              "报告跟着 PDF 数据一起放，方便日后查证和归档。")
 add_para(doc, "用 Excel 打开，包含以下字段：")
 add_table(doc,
     ["字段", "说明"],
@@ -344,7 +350,7 @@ add_table(doc,
 
 add_heading(doc, "6.2 针对失败的文件重跑", level=2)
 add_para(doc, "建议步骤：")
-add_number(doc, "打开 reports/*.csv，按「状态」列筛选 failed / timeout 的行")
+add_number(doc, "打开 <输入文件夹>/reports/*.csv，按「状态」列筛选 failed / timeout 的行")
 add_number(doc, "把这些文件复制到一个新的文件夹（例如「失败重跑」）")
 add_number(doc, "在程序中选择这个新文件夹重新处理")
 add_tip_box(doc, "为什么失败可以重跑成功？",
@@ -395,7 +401,7 @@ add_bullet(doc, "大批量建议分批跑，每批之间重启电脑或者至少
 # 结尾
 add_heading(doc, "8. 联系方式与反馈", level=1)
 add_para(doc, "如果遇到本手册未提及的问题，请联系软件提供方，并附上：")
-add_bullet(doc, "reports 目录下对应的 CSV 文件")
+add_bullet(doc, "<输入文件夹>/reports 下对应的 CSV 文件（batch_*.csv）")
 add_bullet(doc, "失败截图（如有）")
 add_bullet(doc, "Acrobat 版本号和操作系统版本")
 

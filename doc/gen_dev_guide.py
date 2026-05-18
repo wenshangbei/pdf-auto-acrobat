@@ -233,8 +233,9 @@ add_table(doc,
          "诊断脚本, 测试 pywinauto 能否 connect Acrobat"],
         ["requirements.txt", "依赖清单"],
         ["DESIGN.md / DESIGN_BATCH.md / TECH.md", "Markdown 文档 (开发者视角)"],
+        ["TROUBLESHOOTING.md", "踩坑记录 (UIA 惰性暴露等), 必读"],
         ["doc/", "本目录, Word 文档 (用户/开发者视角)"],
-        ["reports/", "运行时生成的 CSV 报告"],
+        ["<输入文件夹>/reports/", "运行时生成的 CSV 报告 (跟输入 PDF 同目录, 不在程序目录)"],
     ],
     col_widths_cm=[5, 11],
     code_cols=[0],
@@ -274,7 +275,8 @@ add_table(doc,
 add_heading(doc, "3.2 BatchRunner (acrobat_batch.py)", level=2)
 add_para(doc, "批量调度器。线程安全，自身跑在子线程，对外暴露 pause/resume/skip_current/stop 控制接口。")
 add_para(doc, "关键方法：")
-add_bullet(doc, "run(pdf_list, watermark) → 主循环，返回报告路径")
+add_bullet(doc, "run(pdf_list, watermark, input_folder=None) → 主循环，返回报告路径。"
+                "input_folder 决定 reports/ 输出位置（不传则用 pdf_list[0] 的父目录）")
 add_bullet(doc, "_run_one_with_timeout(pdf, watermark) → 单文件子线程 + 主线程 join 超时")
 add_bullet(doc, "_guess_stage(tb) → 从 traceback 反推失败发生在哪一步")
 add_bullet(doc, "_append_csv_row(...) → CSV 实时追加（崩溃也不丢数据）")
@@ -336,12 +338,31 @@ add_para(doc, "Acrobat DC 是单实例机制，残留进程会让下次 launch()
 add_heading(doc, "4.5 为什么 connect 用 class_name 而不是 title_re", level=2)
 add_para(doc, "64 位 Python 控制 32 位 Acrobat 时，Application(uia).connect(title_re=...) 会 TimeoutError，但 class_name='AcrobatSDIWindow' 能正常工作（跨架构稳定）。pywinauto 自己也警告了这个问题。")
 
+add_heading(doc, "4.6 为什么找按钮失败时要主动 Ctrl+K / Esc 开关首选项", level=2)
+add_para(doc, "Acrobat 右侧工具栏（AVL_AVView 容器）的子按钮 UIA 节点是「惰性注入」的——"
+              "descendants(Button, title='去水印') 在 Acrobat 内部「未触发重画」时返回 0，"
+              "看起来像按钮不存在，但屏幕上肉眼是看得见的。同一个 PDF 多次跑，时成时败。")
+add_para(doc, "实测的触发器强度阶梯（弱→强）：")
+add_bullet(doc, "鼠标 hover + 滚轮 ❌ —— Acrobat 不响应 WM_MOUSEMOVE/WHEEL")
+add_bullet(doc, "set_focus 切别的窗口再切回 ❌ —— 已经是前台时 set_focus 是 no-op，不触发 WM_ACTIVATE")
+add_bullet(doc, "最小化 + 还原 ✓ —— 触发 WM_ACTIVATE，但窗口会闪")
+add_bullet(doc, "Ctrl+K 开首选项 → Esc 关 ✓ —— 真实模态对话框开关，100% 触发 Acrobat 重画 + 重新枚举控件")
+add_para(doc, "实现：AcrobatWorker._toggle_preferences_dialog()，在 _click_visible_button() 失败循环里"
+              "每 4 轮（POLL_INTERVAL=0.5s × 4 ≈ 2s）调用一次，超时上限 90s。")
+add_note_box(doc, "完整诊断过程参见根目录 TROUBLESHOOTING.md",
+    "包括 5 个误判方向、4 种修复方案的实测对照表。未来再遇到 "
+    "'UI 上看得见但 UIA 查不到' 类问题，直接复用那份文档的诊断路径。"
+)
+
 # 5. 经典坑速查表
 add_heading(doc, "5. 经典坑速查表", level=1)
-add_para(doc, "11 条实战中遇到并解决的坑，按时间倒序：")
+add_para(doc, "12 条实战中遇到并解决的坑，按时间倒序：")
 add_table(doc,
     ["现象", "真因", "解决"],
     [
+        ["找右侧按钮返回 0 候选, 但屏幕能看见",
+         "AVL_AVView 容器的子按钮 UIA 注入是惰性的",
+         "失败循环里 Ctrl+K + Esc 开关首选项触发 Acrobat 重画 (4.6 节)"],
         ["connect Acrobat 超时 30s",
          "32 位 Acrobat + UIA title_re 查询挂死",
          "用 class_name='AcrobatSDIWindow' 而非 title_re"],
@@ -540,7 +561,7 @@ add_table(doc,
         ["CONSECUTIVE_SAME_STAGE", "3", "连续同阶段失败 → 自动暂停"],
         ["CONSECUTIVE_TOTAL_FAIL", "5", "连续失败 (任何阶段) → 自动暂停"],
         ["EST_SEC_PER_FILE", "25", "预估单文件耗时 (用于开始前提示)"],
-        ["REPORT_DIR", "reports", "CSV 报告输出目录"],
+        ["REPORT_SUBDIR", "reports", "CSV 报告子目录名 (实际路径 = <输入文件夹>/REPORT_SUBDIR)"],
     ],
     col_widths_cm=[6, 4, 6],
     code_cols=[0],
