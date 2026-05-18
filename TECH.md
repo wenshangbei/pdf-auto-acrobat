@@ -10,6 +10,7 @@ Auto_PDF_Handle/
 ├── build.bat                 # PyInstaller 打包脚本 (onedir 模式)
 ├── DESIGN.md                 # 设计文档
 ├── TECH.md                   # 本文档
+├── TROUBLESHOOTING.md        # 历次踩坑记录 (UIA 惰性暴露等)
 ├── dist/                     # PyInstaller 产物
 └── build/                    # PyInstaller 中间产物
 ```
