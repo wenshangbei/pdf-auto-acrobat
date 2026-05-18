@@ -38,7 +38,15 @@ PER_FILE_TIMEOUT          = 300   # 单文件硬超时 (秒) - 大 PDF (100MB+) 
 CONSECUTIVE_SAME_STAGE    = 3     # 连续同阶段失败 -> 自动暂停
 CONSECUTIVE_TOTAL_FAIL    = 5     # 连续失败 (任何阶段) -> 自动暂停
 EST_SEC_PER_FILE          = 25    # 预估耗时 (用于开始前提示)
-REPORT_DIR                = "reports"
+
+# REPORT_DIR 必须用绝对路径 (相对 exe 或脚本自身).
+# 否则 PyInstaller 打包后用户双击 exe 时, cwd 可能是别处, 写报告会 PermissionError.
+def _resolve_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+REPORT_DIR = os.path.join(_resolve_base_dir(), "reports")
 
 
 # =====================================================================

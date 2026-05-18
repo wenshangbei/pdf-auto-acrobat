@@ -67,7 +67,7 @@ def main():
     out_exe = os.path.join(out_dir, f"{EXE_NAME}.exe")
     print()
     print("=" * 60)
-    print(f"打包完成 ✓")
+    print(f"打包完成 [OK]")
     print(f"  产物目录: {os.path.abspath(out_dir)}")
     print(f"  双击运行: {os.path.abspath(out_exe)}")
     print()
