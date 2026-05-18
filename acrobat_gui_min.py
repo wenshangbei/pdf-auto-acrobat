@@ -291,17 +291,65 @@ class AcrobatWorker:
 
         raise PwaTimeoutError(f"点击失败 ({label}, 已尝试 {retries + 1} 次): {last_err}")
 
+    # ---------- 主动"刺激"右侧 task pane, 让 Acrobat 把按钮重新注入 UIA 树 ----------
+    def _poke_right_task_pane(self) -> bool:
+        """
+        Acrobat 右侧工具窗格 (AVL_AVView) 在 UIA 上有两种态:
+          - "有按钮态": descendants(Button, title='去水印') 能找到
+          - "空容器态": 只有一个空 Pane (Name='右侧工具窗格' / 'AVScrollView'),
+                       descendants 返回 0
+        Acrobat 自己在这两种态间切换, 我们不能从 UIA 直接判断当前在哪态.
+        但实测: 鼠标 hover 到面板上 + 滚动一下, 大概率能让 Acrobat 切回"有按钮态".
+        本方法找到右侧 task pane 容器, 模拟 hover + 滚轮触发重画.
+        成功触发返回 True, 没找到面板返回 False.
+        """
+        try:
+            from pywinauto import mouse
+            panes = self.main_win.descendants(control_type="Pane")
+            for p in panes:
+                try:
+                    cn = p.element_info.class_name or ""
+                    name = p.element_info.name or ""
+                    # 匹配 Acrobat 右侧工具栏的容器 (多个名字都可能, 看 Acrobat 版本)
+                    if cn == "AVL_AVView" and (
+                        "工具" in name or "TaskPane" in name
+                        or name == "AVScrollView" or name == "右侧工具窗格"
+                    ):
+                        rect = p.rectangle()
+                        if rect.width() <= 0 or rect.height() <= 0:
+                            continue
+                        cx = (rect.left + rect.right) // 2
+                        cy = (rect.top + rect.bottom) // 2
+                        # 移到中心 (不点击, 避免误触发 Acrobat 工具)
+                        mouse.move(coords=(cx, cy))
+                        time.sleep(0.2)
+                        # 上下各滚一次, 触发 Acrobat 重新渲染列表
+                        mouse.scroll(coords=(cx, cy), wheel_dist=-2)
+                        time.sleep(0.15)
+                        mouse.scroll(coords=(cx, cy), wheel_dist=2)
+                        return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return False
+
     # ---------- 通用: 找一个可见的 Button 并点击 ----------
     def _click_visible_button(self, title=None, title_re=None, label_for_log=None,
-                              timeout=TIMEOUT_CONTROL_READY):
+                              timeout=90):
+        """
+        timeout 默认提到 90s. 原因: Acrobat 右侧 task pane 的 UIA 暴露是惰性的,
+        20s 经常等不到按钮注入. 实测 90s 配合 _poke_right_task_pane 刺激, 成功率高得多.
+        """
         import re
         label = label_for_log or title or title_re
-        self.log(f"定位按钮: '{label}' (mode={'regex' if title_re else 'exact'}) ...")
+        self.log(f"定位按钮: '{label}' (mode={'regex' if title_re else 'exact'}, timeout={timeout}s) ...")
 
         regex = re.compile(title_re) if title_re else None
         deadline = time.time() + timeout
         last_err = None
-        
+        empty_streak = 0   # 连续多少轮 descendants 返回 0
+
         while time.time() < deadline:
             try:
                 if title is not None:
@@ -345,6 +393,17 @@ class AcrobatWorker:
                             return
                     except Exception as e:
                         self.log(f"  候选[{idx}] 检查失败: {e}")
+
+                # 0 个候选 = Acrobat 右侧 task pane 处于"空容器态". 每 ~2s 主动刺激一次.
+                if len(candidates) == 0:
+                    empty_streak += 1
+                    if empty_streak % 4 == 0:   # POLL_INTERVAL=0.5s, 4 轮 ≈ 2s
+                        poked = self._poke_right_task_pane()
+                        self.log(f"  [刺激] 第 {empty_streak} 轮空, hover+滚轮 task pane "
+                                 f"(命中={poked}), 等 Acrobat 重画 ...")
+                        time.sleep(1.0)
+                else:
+                    empty_streak = 0
             except Exception as e:
                 last_err = e
                 self.log(f"  [调试] descendants 查询异常: {e}")
